@@ -1,0 +1,12 @@
+# Virtual Environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment Secrets
+.env
+
+# Local Runtime Logs
+logs/*.log
+!logs/.gitkeep
