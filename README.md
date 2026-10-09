@@ -10,7 +10,7 @@ The early stages of a lightweight Security Orchestration, Automation, and Respon
 4. **Automated Response:** If the threat score exceeds the defined threshold (e.g. 50%), the engine automatically executes an OS-level `iptables` DROP rule to isolate the host. An async timer (`threading.Timer`) with a defined threshold in seconds (e.g 300) removes the block rule (`iptables -D`) after said time. A discord webhook fires alerts on threath mitigation and recovery.
 
 <p align="center">
-  <img src="docs/architecture.png" alt="SOAR Engine Architecture Diagram" width="800">
+  <img src="docs/architecture.png" alt="SOAR Engine Architecture Diagram" width="40%">
 </p>
 
 ## Tech Stack
