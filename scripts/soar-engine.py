@@ -205,7 +205,7 @@ def watch_ssh_logs():
     """Thread 2: Stream live system SSH authentication events via journalctl."""
     log_print("[*] [SSH Listener] Streaming journalctl for sshd events...")
     
-    cmd = ["journalctl", "-u", "sshd", "-f", "-n", "0"]
+    cmd = ["journalctl", "-t", "sshd", "-f", "-n", "0"]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         for line in proc.stdout:
