@@ -6,6 +6,7 @@ import requests
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
+from google import genai
 
 # Base paths and environment variables
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -14,6 +15,8 @@ LOG_FILE = BASE_DIR / "logs" / "alerts.log"
 load_dotenv(BASE_DIR / ".env")
 ABUSEIPDB_KEY = os.getenv("ABUSEIPDB_API_KEY")
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # Configuration settings
 BLOCK_DURATION_SECONDS = 60  # 1 minute for local testing (change to 3600 for 1 hour)
@@ -30,25 +33,35 @@ def log_print(msg: str):
 # 1. DISCORD ALERTING ENGINE
 # -------------------------------------------------------------------
 
-def send_discord_block_alert(ip: str, score: int, reports: int, country: str, source: str, duration: int):
+def send_discord_block_alert(ip: str, score: int, reports: int, country: str, source: str, duration: int, ai_analysis: str = None):
     """Send formatted Discord webhook alert when an IP is blocked."""
     if not DISCORD_WEBHOOK_URL:
         return
+
+    fields = [
+        {"name": "Target IP", "value": f"`{ip}`", "inline": True},
+        {"name": "Threat Score", "value": f"**{score}%**", "inline": True},
+        {"name": "Log Source", "value": f"`{source}`", "inline": True},
+        {"name": "Country", "value": country, "inline": True},
+        {"name": "AbuseIPDB Reports", "value": str(reports), "inline": True},
+        {"name": "Action Taken", "value": f"🛑 `iptables DROP ({duration}s temp block)`", "inline": True}
+    ]
+
+    # Append AI SOC Analyst triage brief if generated
+    if ai_analysis:
+        fields.append({
+            "name": "🤖 AI SOC Analyst Triage",
+            "value": ai_analysis,
+            "inline": False  # Full width across the embed
+        })
 
     payload = {
         "embeds": [
             {
                 "title": "🚨 Automated Security Containment Event",
                 "color": 15158332,  # Red
-                "fields": [
-                    {"name": "Target IP", "value": f"`{ip}`", "inline": True},
-                    {"name": "Threat Score", "value": f"**{score}%**", "inline": True},
-                    {"name": "Log Source", "value": f"`{source}`", "inline": True},
-                    {"name": "Country", "value": country, "inline": True},
-                    {"name": "AbuseIPDB Reports", "value": str(reports), "inline": True},
-                    {"name": "Action Taken", "value": f"🛑 `iptables DROP ({duration}s temp block)`", "inline": True}
-                ],
-                "footer": {"text": "Lightweight Python SOAR Engine"},
+                "fields": fields,
+                "footer": {"text": "Lightweight Python SOAR Engine | Automated Incident Triage"},
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             }
         ]
@@ -106,7 +119,7 @@ def unblock_ip(ip: str):
     except Exception as e:
         log_print(f"[-] Failed to unblock IP {ip}: {e}")
 
-def block_ip(ip: str, score: int, reports: int, country: str, source: str) -> bool:
+def block_ip(ip: str, score: int, reports: int, country: str, source: str, ai_analysis: str = None) -> bool:
     """Automated containment via OS iptables with non-blocking expiration timer."""
     if ip in active_blocks:
         log_print(f"[*] IP {ip} is already actively blocked. Skipping duplicate rule.")
@@ -125,8 +138,8 @@ def block_ip(ip: str, score: int, reports: int, country: str, source: str) -> bo
         log_print(f"[✓] Successfully added iptables DROP rule for {ip}")
         active_blocks.add(ip)
 
-        # Notify Discord of containment
-        send_discord_block_alert(ip, score, reports, country, source, BLOCK_DURATION_SECONDS)
+        # Notify Discord of containment with AI triage attached
+        send_discord_block_alert(ip, score, reports, country, source, BLOCK_DURATION_SECONDS, ai_analysis)
 
         # Schedule async unblock timer
         timer = threading.Timer(BLOCK_DURATION_SECONDS, unblock_ip, args=[ip])
@@ -156,12 +169,46 @@ def check_ip_reputation(ip: str) -> dict:
             return {
                 "score": data.get("abuseConfidenceScore", 0),
                 "reports": data.get("totalReports", 0),
-                "country": data.get("countryCode", "Unknown")
+                "country": data.get("countryCode", "Unknown"),
+                "isp": data.get("isp", "Unknown"),
+                "usageType": data.get("usageType", "Unknown")
             }
     except Exception as e:
         log_print(f"[-] API Request error for {ip}: {e}")
 
-    return {"score": 0, "reports": 0, "country": "Unknown"}
+    return {"score": 0, "reports": 0, "country": "Unknown", "isp": "Unknown", "usageType": "Unknown"}
+
+def generate_ai_triage(ip: str, source: str, threat_data: dict) -> str:
+    """Generate an automated Tier 1 SOC Analyst summary using Gemini."""
+    if not gemini_client:
+        return "AI analysis skipped: GEMINI_API_KEY not configured."
+
+    prompt = f"""
+You are an autonomous Tier 1 SOC Analyst performing automated incident triage.
+Analyze the following telemetry and provide an executive summary:
+
+- Target IP: {ip}
+- Ingestion Vector: {source}
+- Abuse Confidence Score: {threat_data.get('score', 0)}%
+- Country: {threat_data.get('country', 'Unknown')}
+- Total Abuse Reports: {threat_data.get('reports', 0)}
+- ISP: {threat_data.get('isp', 'Unknown')}
+- Usage Type: {threat_data.get('usageType', 'Unknown')}
+
+Instructions:
+1. Explain the likely nature/intent of this traffic (e.g., botnet credential stuffing, Tor relay, automated scanner).
+2. Assess the risk level.
+3. Keep the total response under 3 sentences. Be direct, authoritative, and concise. No conversational filler.
+"""
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception as e:
+        log_print(f"[-] [AI Analyst] Failed to generate triage: {e}")
+        return "AI triage unavailable due to API error."
 
 def evaluate_threat(ip: str, source_name: str):
     """Core evaluation pipeline shared by all log sources."""
@@ -176,7 +223,17 @@ def evaluate_threat(ip: str, source_name: str):
     log_print(f"[+] [{source_name}] Match | Country: {intel['country']} | Reports: {intel['reports']} | Score: {score}%")
 
     if score >= 50:
-        block_ip(ip, score, intel['reports'], intel['country'], source_name)
+        log_print(f"[*] [{source_name}] Threat threshold met ({score}% >= 50%). Requesting AI SOC triage...")
+        ai_summary = generate_ai_triage(ip, source_name, intel)
+        
+        block_ip(
+            ip=ip,
+            score=score,
+            reports=intel['reports'],
+            country=intel['country'],
+            source=source_name,
+            ai_analysis=ai_summary
+        )
 
 # -------------------------------------------------------------------
 # 3. LOG INGESTION LISTENERS (THREADS)

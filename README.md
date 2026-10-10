@@ -11,13 +11,14 @@ The early stages of a lightweight Security Orchestration, Automation, and Respon
 
 ```mermaid
 flowchart TD
-    %% Styling and Theme Defaults
+    %% Styling
     classDef source fill:#1e293b,stroke:#475569,stroke-width:2px,color:#f8fafc;
     classDef engine fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
     classDef enrich fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#f8fafc;
+    classDef ai fill:#312e81,stroke:#c084fc,stroke-width:2px,color:#f8fafc;
     classDef block fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
     classDef recover fill:#052e16,stroke:#22c55e,stroke-width:2px,color:#f8fafc;
-    classDef alert fill:#312e81,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
+    classDef alert fill:#3b0764,stroke:#d8b4fe,stroke-width:2px,color:#f8fafc;
 
     %% Ingestion Sources
     subgraph Ingestion["1. Telemetry Ingestion"]
@@ -26,7 +27,7 @@ flowchart TD
     end
 
     %% Core Engine & Parsing
-    subgraph Engine["2. Detection & Triage"]
+    subgraph Engine["2. Detection & Filtering"]
         SOAR["SOAR Engine Worker<br/><code>soar-engine.py</code>"]:::engine
         FILTER{"Private IP Check<br/>RFC 1918 / Loopback?"}:::engine
     end
@@ -35,28 +36,30 @@ flowchart TD
     SSH -->|Stream events| SOAR
     SOAR -->|Regex extract IP| FILTER
 
-    FILTER -->|Yes: 127.0.0.1, 10.x, etc.| SKIP["Drop & Skip Enrichment"]:::source
-    FILTER -->|No: External Target IP| API
+    FILTER -->|Yes: Internal IP| SKIP["Drop & Skip Check"]:::source
+    FILTER -->|No: External IP| API
 
-    %% Enrichment Layer
-    subgraph ThreatIntel["3. Threat Intelligence"]
-        API["AbuseIPDB API v2<br/>Query IP Reputation"]:::enrich
+    %% Threat Intelligence & AI Triage
+    subgraph Analysis["3. Threat Intelligence & AI Triage"]
+        API["AbuseIPDB API v2<br/>Reputation & Score"]:::enrich
         SCORE{"Abuse Score >= 50%?"}:::enrich
+        GEMINI["Google Gemini API<br/><code>gemini-3.8-flash</code><br/>Tier 1 SOC Analyst Triage"]:::ai
     end
 
     API --> SCORE
     SCORE -->|No: Low Threat| LOG["Log & Monitor"]:::source
+    SCORE -->|Yes: High Threat| GEMINI
 
     %% Automated Remediation & Alerts
     subgraph Response["4. Automated Remediation & Recovery"]
         IPTABLES["Execute Host Isolation<br/><code>iptables -A INPUT -s IP -j DROP</code>"]:::block
         TIMER["Async Recovery Timer<br/><code>threading.Timer (60s)</code>"]:::engine
         CLEANUP["Automated Rule Cleanup<br/><code>iptables -D INPUT -s IP -j DROP</code>"]:::recover
-        DISCORD_BLOCK["Discord Webhook<br/>🚨 Containment Alert"]:::alert
+        DISCORD_BLOCK["Discord Webhook<br/>🚨 Containment Alert + AI Brief"]:::alert
         DISCORD_UNBLOCK["Discord Webhook<br/>🟢 Recovery Alert"]:::alert
     end
 
-    SCORE -->|Yes: High Threat| IPTABLES
+    GEMINI --> IPTABLES
     IPTABLES --> DISCORD_BLOCK
     IPTABLES --> TIMER
     TIMER -->|After 60s expiration| CLEANUP
