@@ -7,7 +7,7 @@ The early stages of a lightweight Security Orchestration, Automation, and Respon
 1. **Ingestion:** FastAPI endpoint simulates an exposed web application logging client login attempts (`alerts.log`). Also monitors host-level SSH authentication events continuously via `journalctl -t sshd`.
 2. **Parsing & Triage:** Python worker continuously tails the log streams and extracts client IP addresses using regex.
 3. **Enrichment:** Queries the **AbuseIPDB API** to check the global reputation score and report history of external IPs.
-4. **Automated Response:** If the threat score exceeds the defined threshold (e.g. 50%), the engine automatically executes an OS-level `iptables` DROP rule to isolate the host. An async timer (`threading.Timer`) with a defined threshold in seconds (e.g 300) removes the block rule (`iptables -D`) after said time. A discord webhook fires alerts on threath mitigation and recovery.
+4. **Automated Response:** If the threat score exceeds the defined threshold (e.g. 50%), the engine automatically executes an OS-level `iptables` DROP rule to isolate the host. An async timer (`threading.Timer`) with a defined threshold in seconds (e.g 300) removes the block rule (`iptables -D`) after said time. The IP address and contextual information is also sent to `gemini-3.8-flash` that acts as a tier 1 SOC analyst, creating a brief summary of the threat. A discord webhook fires alerts on threath mitigation and recovery, including the AI-summary. 
 
 ```mermaid
 flowchart TD
@@ -70,12 +70,18 @@ flowchart TD
 ## Tech Stack
 * **Language:** Python 3.12
 * **Web Framework:** FastAPI / Uvicorn
-* **Threat Intel:** AbuseIPDB v2 REST API
-* **System Containment:** Linux `iptables` / Subprocess Orchestration
+* **Threat Intelligence:** AbuseIPDB v2 REST API
+* **AI Incident Triage:** Google Gemini API (`gemini-3.8-flash` via `google-genai` SDK)
+* **Host Containment:** Linux `iptables` (asynchronous subprocess orchestration)
+* **Telemetry & Ingestion:** `systemd-journald` (`journalctl -t sshd`) & application log tailing
+* **Alerting & Notification:** Discord Webhook API
 
 ### Prerequisites
-* Linux OS (Tested on Fedora)
-* Python 3.10+
-* `sudo` privileges for `iptables` rules
-
+* **Operating System:** Linux OS with `systemd` (Tested on Fedora Linux)
+* **Python Runtime:** Python 3.10+ (with virtual environment support)
+* **Host Permissions:** `sudo` privileges (required to apply and delete `iptables` containment rules)
+* **API Credentials & Webhooks (in `.env`):**
+  * AbuseIPDB API v2 Key
+  * Google Gemini API Key
+  * Discord Channel Webhook URL
 
