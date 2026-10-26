@@ -19,7 +19,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # Configuration settings
-BLOCK_DURATION_SECONDS = 60  # 1 minute for local testing (change to 3600 for 1 hour)
+BLOCK_DURATION_SECONDS = 60  # 1 minute for local testing 
 
 # State management
 print_lock = threading.Lock()
@@ -119,11 +119,11 @@ def unblock_ip(ip: str):
     except Exception as e:
         log_print(f"[-] Failed to unblock IP {ip}: {e}")
 
-def block_ip(ip: str, score: int, reports: int, country: str, source: str, ai_analysis: str = None) -> bool:
+def block_ip(ip: str) -> bool:
     """Automated containment via OS iptables with non-blocking expiration timer."""
     if ip in active_blocks:
         log_print(f"[*] IP {ip} is already actively blocked. Skipping duplicate rule.")
-        return True
+        return False
 
     log_print(f"[!] CONTAINMENT ACTION: Blocking IP {ip} via iptables for {BLOCK_DURATION_SECONDS}s...")
     try:
@@ -132,14 +132,11 @@ def block_ip(ip: str, score: int, reports: int, country: str, source: str, ai_an
         if check.returncode == 0:
             log_print(f"[*] IP {ip} is already present in iptables.")
             active_blocks.add(ip)
-            return True
+            return False
 
         subprocess.run(["sudo", "iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"], check=True)
         log_print(f"[✓] Successfully added iptables DROP rule for {ip}")
         active_blocks.add(ip)
-
-        # Notify Discord of containment with AI triage attached
-        send_discord_block_alert(ip, score, reports, country, source, BLOCK_DURATION_SECONDS, ai_analysis)
 
         # Schedule async unblock timer
         timer = threading.Timer(BLOCK_DURATION_SECONDS, unblock_ip, args=[ip])
@@ -200,6 +197,7 @@ Instructions:
 2. Assess the risk level.
 3. Keep the total response under 3 sentences. Be direct, authoritative, and concise. No conversational filler.
 """
+# 1. Try Primary Model
     try:
         response = gemini_client.models.generate_content(
             model="gemini-3.8-flash",
@@ -207,7 +205,18 @@ Instructions:
         )
         return response.text.strip()
     except Exception as e:
-        log_print(f"[-] [AI Analyst] Failed to generate triage: {e}")
+        log_print(f"[-] [AI Analyst] Primary model (gemini-3.8-flash) failed: {e}")
+        log_print("[*] [AI Analyst] Attempting fallback model (gemini-3.5-flash-lite)...")
+
+    # 2. Try Fallback Model
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+        )
+        return response.text.strip()
+    except Exception as e:
+        log_print(f"[-] [AI Analyst] Fallback model also failed: {e}")
         return "AI triage unavailable due to API error."
 
 def evaluate_threat(ip: str, source_name: str):
@@ -223,15 +232,20 @@ def evaluate_threat(ip: str, source_name: str):
     log_print(f"[+] [{source_name}] Match | Country: {intel['country']} | Reports: {intel['reports']} | Score: {score}%")
 
     if score >= 50:
-        log_print(f"[*] [{source_name}] Threat threshold met ({score}% >= 50%). Requesting AI SOC triage...")
+        log_print(f"[*] [{source_name}] Threat threshold met ({score}% >= 50%). Blocking IP immediately...")
+        if not block_ip(ip):
+            return
+
+        log_print(f"[*] [{source_name}] Requesting AI SOC triage...")
         ai_summary = generate_ai_triage(ip, source_name, intel)
-        
-        block_ip(
+
+        send_discord_block_alert(
             ip=ip,
             score=score,
             reports=intel['reports'],
             country=intel['country'],
             source=source_name,
+            duration=BLOCK_DURATION_SECONDS,
             ai_analysis=ai_summary
         )
 

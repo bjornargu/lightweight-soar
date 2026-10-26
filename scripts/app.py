@@ -2,6 +2,8 @@ import logging
 from pathlib import Path
 from fastapi import FastAPI, Request
 
+# Controls the logic behind the simulated web app + logging
+
 app = FastAPI()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,7 +14,7 @@ logging.basicConfig(filename=str(LOG_FILE), level=logging.INFO, format="%(asctim
 
 @app.post("/api/v1/login")
 async def login(request: Request):
-    forwarded_for = request.headers.get("X-Forwarded-For")
+    forwarded_for = request.headers.get("X-Forwarded-For") # Forwarded-for makes it simpler to test different IPs
     client_ip = forwarded_for if forwarded_for else request.client.host
 
     body = await request.json()

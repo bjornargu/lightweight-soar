@@ -48,7 +48,7 @@ flowchart TD
 
     API --> SCORE
     SCORE -->|No: Low Threat| LOG["Log & Monitor"]:::source
-    SCORE -->|Yes: High Threat| GEMINI
+    SCORE -->|Yes: High Threat| IPTABLES
 
     %% Automated Remediation & Alerts
     subgraph Response["4. Automated Remediation & Recovery"]
@@ -59,8 +59,8 @@ flowchart TD
         DISCORD_UNBLOCK["Discord Webhook<br/>🟢 Recovery Alert"]:::alert
     end
 
-    GEMINI --> IPTABLES
-    IPTABLES --> DISCORD_BLOCK
+    IPTABLES --> GEMINI
+    GEMINI --> DISCORD_BLOCK
     IPTABLES --> TIMER
     TIMER -->|After 60s expiration| CLEANUP
     CLEANUP --> DISCORD_UNBLOCK
