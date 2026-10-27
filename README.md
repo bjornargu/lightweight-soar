@@ -2,6 +2,26 @@
 
 The early stages of a lightweight Security Orchestration, Automation, and Response (SOAR) pipeline built in Python. Designed for rapid threat detection, automated threat intelligence enrichment, and host-level containment with minimal system overhead.
 
+```mermaid
+flowchart LR
+    %% Styling
+    classDef default font-family:ui-monospace,monospace,font-size:13px;
+    classDef step fill:#0f172a,stroke:#38bdf8,stroke-width:1.5px,color:#f8fafc;
+    classDef block fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#f8fafc;
+    classDef alert fill:#3b0764,stroke:#d8b4fe,stroke-width:1.5px,color:#f8fafc;
+
+    S1["<b>1. Loggkilder</b><br/>(Log Sources)"]:::step
+    S2["<b>2. SOAR-engine</b><br/>(SOAR Engine)"]:::step
+    S3["<b>3. IP-oppslag</b><br/>(Threat Intel)"]:::step
+    S4["<b>4. Isolering</b><br/>(Host Containment)"]:::block
+    S5["<b>5. Varsling</b><br/>(Notification)"]:::alert
+
+    S1 -->|Innsamling| S2
+    S2 -->|Trusselvurdering| S3
+    S3 -->|Aktiv motstand| S4
+    S4 -->|Rapportering| S5
+```
+
 ## Architecture & Workflow
 
 1. **Ingestion:** FastAPI endpoint simulates an exposed web application logging client login attempts (`alerts.log`). Also monitors host-level SSH authentication events continuously via `journalctl -t sshd`.
